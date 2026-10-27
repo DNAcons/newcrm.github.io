@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>N.E.W. Invest CRM</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .fade-in { animation: fadeIn 0.2s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        input, textarea, select { transition: all 0.2s; }
+        input:focus, textarea:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #d4af37; border-color: #d4af37; }
+        .dropdown-menu { transform-origin: top; animation: dropIn 0.15s ease-out; }
+        @keyframes dropIn { from { opacity: 0; transform: scaleY(0.95) translateY(-4px); } to { opacity: 1; transform: scaleY(1) translateY(0); } }
+        .blink { animation: blinkAnim 1s step-start infinite; }
+        @keyframes blinkAnim { 50% { opacity: 0.15; } }
+        .drag-over { outline: 2px dashed #d4af37; outline-offset: -6px; background: rgba(212, 175, 55, 0.08); }
+        .dragging { opacity: 0.4; }
+    </style>
+</head>
+<body class="text-slate-800 h-screen overflow-hidden">
+    <div id="app">
+        <div class="flex items-center justify-center h-screen bg-slate-50">
+            <div class="text-center">
+                <div class="animate-pulse flex flex-col items-center gap-4">
+                    <div class="w-12 h-12 bg-slate-200 rounded-xl"></div>
+                    <div class="h-4 w-48 bg-slate-200 rounded"></div>
+                    <p class="text-xs text-slate-400">Загрузка...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Локальные Firebase SDK (файлы из той же папки) -->
+    <script src="./firebase-app.js"></script>
+    <script src="./firebase-firestore.js"></script>
+
+    <script>
+        window.addEventListener('error', function (e) {
+            var box = document.getElementById('fatal-error');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'fatal-error';
+                box.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#fee2e2;color:#991b1b;padding:8px 12px;font-size:12px;z-index:9999;';
+                document.body.appendChild(box);
+            }
+            box.textContent = 'Ошибка: ' + e.message + ' (строка ' + e.lineno + ')';
+        });
+
+        // ============ FIREBASE ============
+        var db = null;
+        var firebaseReady = false;
+        try {
+            if (typeof firebase !== 'undefined') {
+                var firebaseConfig = {
+                    apiKey: "AIzaSyCZS2M_KVwsHYfZIxuQRFH_y1UtTz30YB0",
+                    authDomain: "new-crm-c3637.firebaseapp.com",
+                    projectId: "new-crm-c3637",
+                    storageBucket: "new-crm-c3637.firebasestorage.app",
+                    messagingSenderId: "683210584418",
+                    appId: "1:683210584418:web:c202cef4c7b8b09bb97c3b"
+                };
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                firebaseReady = true;
+                console.log('Firebase готов');
+            } else {
+                console.error('firebase SDK не найден. Убедитесь, что файлы firebase-app.js и firebase-firestore.js лежат рядом с index.html');
+            }
+        } catch (e) {
+            console.error('Ошибка инициализации Firebase:', e);
+        }
+
+        // ============ КОНСТАНТЫ ============
+        var STAGES = [
+            { id: 'new', name: 'Новый лид', cardBg: 'bg-slate-50', cardBorder: 'border-slate-400', cardText: 'text-slate-800', headerBg: 'bg-slate-100' },
+            { id: 'contacted', name: 'Созвонились, инфо направлено', cardBg: 'bg-blue-50', cardBorder: 'border-blue-400', cardText: 'text-blue-900', headerBg: 'bg-blue-100' },
+            { id: 'meeting1', name: '1 встреча назначена', cardBg: 'bg-indigo-50', cardBorder: 'border-indigo-400', cardText: 'text-indigo-900', headerBg: 'bg-indigo-100' },
+            { id: 'approval', name: 'Согласование', cardBg: 'bg-violet-50', cardBorder: 'border-violet-400', cardText: 'text-violet-900', headerBg: 'bg-violet-100' },
+            { id: 'memo_sent', name: 'Меморандум отправлен', cardBg: 'bg-purple-50', cardBorder: 'border-purple-400', cardText: 'text-purple-900', headerBg: 'bg-purple-100' },
+            { id: 'meeting2', name: '2 встреча назначена', cardBg: 'bg-fuchsia-50', cardBorder: 'border-fuchsia-400', cardText: 'text-fuchsia-900', headerBg: 'bg-fuchsia-100' },
+            { id: 'memo_filled', name: 'Меморандум заполнен', cardBg: 'bg-pink-50', cardBorder: 'border-pink-400', cardText: 'text-pink-900', headerBg: 'bg-pink-100' },
+            { id: 'investor_meeting', name: 'Встреча с инвестором', cardBg: 'bg-rose-50', cardBorder: 'border-rose-400', cardText: 'text-rose-900', headerBg: 'bg-rose-100' },
+            { id: 'contract', name: 'Подписан договор, Invoice', cardBg: 'bg-orange-50', cardBorder: 'border-orange-400', cardText: 'text-orange-900', headerBg: 'bg-orange-100' },
+            { id: 'audit', name: 'Этап проведения аудита', cardBg: 'bg-amber-50', cardBorder: 'border-amber-400', cardText: 'text-amber-900', headerBg: 'bg-amber-100' },
+            { id: 'funded', name: 'Инвестиции получены', cardBg: 'bg-emerald-50', cardBorder: 'border-emerald-400', cardText: 'text-emerald-900', headerBg: 'bg-emerald-100' },
+            { id: 'failed', name: 'Факап - сделка провалена', cardBg: 'bg-red-50', cardBorder: 'border-red-400', cardText: 'text-red-900', headerBg: 'bg-red-100' }
+        ];
+
+        var STAGE_MIGRATION = { waiting_info: 'memo_sent', memorandum: 'memo_filled', audit_paid: 'audit' };
+        var KEY_CURRENT_USER_ID = 'new_current_user_id';
+
+        var ALL_MANAGERS = [
+            { id: 'u1', firstName: 'Денис', lastName: 'Алёхин' },
+            { id: 'u2', firstName: 'Игорь', lastName: 'Шилов' },
+            { id: 'u3', firstName: 'Александр', lastName: 'Игнатов' },
+            { id: 'u4', firstName: 'Евгений', lastName: 'Мартынов' },
+            { id: 'u5', firstName: 'Игит', lastName: 'Антонян' },
+            { id: 'u6', firstName: 'Ирина', lastName: 'Тараненко' },
+            { id: 'u7', firstName: 'Евгений', lastName: 'Богат' },
+            { id: 'u8', firstName: 'Игорь', lastName: 'Гордеев' }
+        ];
+
+        var MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+        var WEEK_DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+        // ============ STATE ============
+        var state = {
+            currentUser: null,
+            deals: [],
+            users: ALL_MANAGERS,
+            view: 'pipeline',
+            modalOpen: false,
+            selectedDealId: null,
+            firebaseConnected: firebaseReady,
+            calYear: new Date().getFullYear(),
+            calMonth: new Date().getMonth(),
+            selectedDate: null,
+            dealFiles: [],
+            uploadingName: null,
+            taskPopup: null,
+            analyticsScope: 'all'
+        };
+
+        // ============ УТИЛИТЫ ============
+        function formatMoney(amount) {
+            return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(amount || 0);
+        }
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
+        function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+        function dateKey(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+        function dateKeyOf(dateStr) { return dateKey(new Date(dateStr)); }
+        function timeOf(dateStr) {
+            if (!dateStr) return '';
+            var d = new Date(dateStr);
+            return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+        }
+        function toLocalInputValue(dateStr) {
+            if (!dateStr) return '';
+            var d = new Date(dateStr);
+            return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+        }
+        function formatSize(bytes) {
+            if (!bytes && bytes !== 0) return '';
+            if (bytes < 1024) return bytes + ' Б';
+            if (bytes < 1048576) return Math.round(bytes / 1024) + ' КБ';
+            return (bytes / 1048576).toFixed(1) + ' МБ';
+        }
+        function findUser(id) { return state.users.find(function (u) { return u.id === id; }) || null; }
+        function findDeal(id) { return state.deals.find(function (d) { return d.id === id; }) || null; }
+        function getUserLabel(user) { return user ? user.lastName + ' ' + user.firstName : 'Неизвестно'; }
+        function isOwner(deal) { return !deal || deal.managerId === state.currentUser.id; }
+        function isMine(deal) {
+            if (!state.currentUser) return false;
+            return deal.managerId === state.currentUser.id || deal.responsibleManagerId === state.currentUser.id;
+        }
+        function isOverdue(t) { return t && t.date && !t.done && new Date(t.date).getTime() < Date.now(); }
+
+        function dealTaskStatus(deal) {
+            var tasks = deal.tasks || [];
+            var open = tasks.filter(function (t) { return !t.done; });
+            if (open.some(function (t) { return isOverdue(t); })) return 'overdue';
+            if (open.length > 0) return 'active';
+            return 'none';
+        }
+
+        function getMyTasks() {
+            var list = [];
+            (state.deals || []).forEach(function (deal) {
+                if (!isMine(deal)) return;
+                (deal.tasks || []).forEach(function (task, index) {
+                    list.push({ deal: deal, task: task, index: index });
+                });
+            });
+            return list;
+        }
+
+        function getMyDeals() {
+            return (state.deals || []).filter(function (d) { return isMine(d); });
+        }
+
+        function getAnalyticsDeals() {
+            if (state.analyticsScope === 'mine') {
+                return (state.deals || []).filter(function (d) { return isMine(d); });
+            }
+            return state.deals || [];
+        }
+
+        // ============ FIRESTORE ============
+        function subscribeToDeals() {
+            if (!db) return;
+            try {
+                db.collection("deals").orderBy("createdAt", "desc").onSnapshot(function (snapshot) {
+                    var deals = snapshot.docs.map(function (d) {
+                        var obj = d.data(); obj.id = d.id; return obj;
+                    });
+                    deals.forEach(function (deal) {
+                        if (STAGE_MIGRATION[deal.stage]) {
+                            var newStage = STAGE_MIGRATION[deal.stage];
+                            deal.stage = newStage;
+                            updateDealInDB(deal.id, { stage: newStage });
+                        }
+                    });
+                    state.deals = deals;
+                    state.firebaseConnected = true;
+                    render();
+                }, function (error) {
+                    console.error('Firestore error:', error);
+                    state.firebaseConnected = false;
+                    render();
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        function saveDealToDB(dealData) {
+            if (!db) { alert("База данных недоступна"); return; }
+            var data = Object.assign({}, dealData, { createdAt: new Date().toISOString() });
+            db.collection("deals").add(data).catch(function (e) { alert("Ошибка: " + e.message); });
+        }
+        function updateDealInDB(id, data) {
+            if (!db) return;
+            db.collection("deals").doc(id).update(data).catch(function (e) { console.error(e); });
+        }
+        function deleteDealFromDB(id) {
+            if (!db) return;
+            db.collection("deals").doc(id).delete().catch(function (e) { console.error(e); });
+        }
+
+        // ============ ФАЙЛЫ ============
+        function loadFiles(dealId) {
+            state.dealFiles = []; state.uploadingName = null;
+            if (!db || !dealId) return;
+            db.collection('files').where('dealId', '==', dealId).get().then(function (snap) {
+                state.dealFiles = snap.docs.map(function (d) { var o = d.data(); o.id = d.id; return o; });
+                state.uploadingName = null;
+                if (state.modalOpen) renderModal();
+            }).catch(function (e) { console.error(e); state.uploadingName = null; });
+        }
+
+        window.handleFileUpload = function (input) {
+            if (!input.files || !input.files[0] || !state.selectedDealId) return;
+            var file = input.files[0];
+            if (!db) { alert('Нет подключения к БД'); return; }
+            if (file.size > 20 * 1024 * 1024) { alert('Файл больше 20 МБ. Используйте «Прикрепить ссылку».'); return; }
+            state.uploadingName = file.name; renderModal();
+            var reader = new FileReader();
+            reader.onload = function () {
+                try {
+                    var base64 = String(reader.result).split(',')[1];
+                    var CHUNK = 700000;
+                    var chunks = [];
+                    for (var i = 0; i < base64.length; i += CHUNK) chunks.push(base64.substr(i, CHUNK));
+                    db.collection('files').add({
+                        dealId: state.selectedDealId, name: file.name, size: file.size,
+                        type: file.type || '', chunkCount: chunks.length, external: false, createdAt: new Date().toISOString()
+                    }).then(function (ref) {
+                        var writes = chunks.map(function (c, idx) {
+                            return db.collection('fileChunks').add({ fileId: ref.id, index: idx, data: c });
+                        });
+                        return Promise.all(writes);
+                    }).then(function () { loadFiles(state.selectedDealId); })
+                    .catch(function (err) { state.uploadingName = null; alert('Ошибка: ' + (err && err.message ? err.message : err)); renderModal(); });
+                } catch (e) { state.uploadingName = null; alert('Не удалось прочитать файл'); renderModal(); }
+            };
+            reader.onerror = function () { state.uploadingName = null; alert('Ошибка чтения'); renderModal(); };
+            reader.readAsDataURL(file);
+        };
+
+        window.openFile = function (fileId) {
+            var f = null;
+            for (var i = 0; i < state.dealFiles.length; i++) if (state.dealFiles[i].id === fileId) f = state.dealFiles[i];
+            if (!f) return;
+            if (f.url) { window.open(f.url, '_blank'); return; }
+            if (!db) return;
+            db.collection('fileChunks').where('fileId', '==', fileId).get().then(function (snap) {
+                var chunks = snap.docs.map(function (d) { return d.data(); });
+                chunks.sort(function (a, b) { return a.index - b.index; });
+                var b64 = ''; chunks.forEach(function (c) { b64 += c.data || ''; });
+                var bin = atob(b64);
+                var arr = new Uint8Array(bin.length);
+                for (var j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
+                var blob = new Blob([arr], { type: f.type || 'application/octet-stream' });
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url; a.download = f.name || 'file';
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+            }).catch(function (e) { alert('Не удалось открыть файл'); });
+        };
+
+        window.deleteFileDoc = function (fileId) {
+            if (!confirm('Удалить файл?')) return;
+            if (!db) return;
+            db.collection('fileChunks').where('fileId', '==', fileId).get().then(function (snap) {
+                var batch = db.batch();
+                snap.docs.forEach(function (d) { batch.delete(d.ref); });
+                batch.delete(db.collection('files').doc(fileId));
+                return batch.commit();
+            }).then(function () { loadFiles(state.selectedDealId); }).catch(function (e) { alert('Ошибка удаления'); });
+        };
+
+        window.attachLink = function () {
+            if (!state.selectedDealId || !db) return;
+            var url = prompt('Вставьте ссылку на файл:');
+            if (!url || !url.trim()) return;
+            var name = prompt('Название файла:', 'Внешний файл');
+            if (name === null) return;
+            db.collection('files').add({
+                dealId: state.selectedDealId, name: name.trim() || 'Внешний файл',
+                size: 0, type: '', chunkCount: 0, external: true, url: url.trim(), createdAt: new Date().toISOString()
+            }).then(function () { loadFiles(state.selectedDealId); }).catch(function (e) { alert('Ошибка прикрепления'); });
+        };
+
+        // ============ АВТОРИЗАЦИЯ ============
+        window.selectUser = function (userId) {
+            var user = ALL_MANAGERS.find(function (u) { return u.id === userId; });
+            if (!user) return;
+            state.currentUser = user;
+            localStorage.setItem(KEY_CURRENT_USER_ID, userId);
+            render();
+            if (firebaseReady && db) subscribeToDeals();
+        };
+
+        window.logout = function () {
+            state.currentUser = null; state.deals = []; state.taskPopup = null;
+            state.modalOpen = false; state.selectedDealId = null;
+            localStorage.removeItem(KEY_CURRENT_USER_ID);
+            var modalRoot = document.getElementById('modal-root'); if (modalRoot) modalRoot.remove();
+            var popupRoot = document.getElementById('task-popup-root'); if (popupRoot) popupRoot.remove();
+            render();
+        };
+
+        // ============ РЕНДЕР: ЭКРАН ВХОДА ============
+        function renderLogin() {
+            return `<div class="h-screen w-full flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
+                <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md fade-in border border-white/10">
+                    <div class="text-center mb-8">
+                        <div class="w-16 h-16 bg-slate-900 rounded-xl mx-auto flex items-center justify-center mb-4 shadow-lg">
+                            <i class="fa-solid fa-gem text-amber-400 text-2xl"></i>
+                        </div>
+                        <h1 class="text-2xl font-bold text-slate-900 tracking-tight">N.E.W. Invest CRM</h1>
+                        <p class="text-slate-500 text-sm mt-1">Система управления инвестиционными проектами</p>
+                    </div>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Выберите партнёра</label>
+                            <select id="loginUserSelect" class="w-full px-4 py-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 focus:ring-2 focus:ring-amber-400 focus:border-amber-400">
+                                <option value="">— Выберите —</option>
+                                ${ALL_MANAGERS.map(function (m) { return `<option value="${m.id}">${m.lastName} ${m.firstName}</option>`; }).join('')}
+                            </select>
+                        </div>
+                        <button onclick="window.selectUser(document.getElementById('loginUserSelect').value)" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3 rounded-lg transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2">
+                            <span>Войти в систему</span><i class="fa-solid fa-arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // ============ РЕНДЕР ============
+        function render() {
+            var app = document.getElementById('app');
+            if (!app) return;
+            if (!state.currentUser) { app.innerHTML = renderLogin(); return; }
+            app.innerHTML = renderApp();
+            if (state.view === 'analytics') setTimeout(initCharts, 100);
+            if (state.modalOpen) renderModal();
+            if (state.taskPopup) renderTaskPopup();
+            else { var popupRoot = document.getElementById('task-popup-root'); if (popupRoot) popupRoot.remove(); }
+        }
+
+        function renderApp() {
+            var titles = {
+                pipeline: ['Моя воронка проектов', 'Только ваши сделки и задачи'],
+                analytics: ['Аналитика', 'Статистика по проектам команды'],
+                tasks: ['Мои задачи', 'Интерактивный календарь']
+            };
+            var title = titles[state.view];
+
+            return `<div class="h-screen flex bg-slate-50">
+                <aside class="w-64 bg-white border-r border-slate-200 flex-col shadow-sm hidden md:flex">
+                    <div class="p-6 border-b border-slate-100">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-gem text-amber-400"></i></div>
+                            <div><h1 class="font-bold text-slate-900 text-lg leading-tight">N.E.W. Invest</h1><p class="text-[10px] text-slate-400 uppercase tracking-widest">Premium CRM</p></div>
+                        </div>
+                    </div>
+                    <nav class="flex-1 p-4 space-y-1 overflow-y-auto">
+                        <button onclick="window.setView('pipeline')" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${state.view === 'pipeline' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}">
+                            <i class="fa-solid fa-chart-column w-5"></i> Воронка сделок</button>
+                        <button onclick="window.setView('tasks')" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${state.view === 'tasks' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}">
+                            <i class="fa-solid fa-calendar-check w-5"></i> Задачи</button>
+                        <button onclick="window.setView('analytics')" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${state.view === 'analytics' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}">
+                            <i class="fa-solid fa-chart-pie w-5"></i> Аналитика</button>
+                    </nav>
+                    <div class="p-4 border-t border-slate-100 bg-slate-50/50">
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white font-bold text-sm shadow-sm flex-shrink-0">${state.currentUser.firstName[0]}${state.currentUser.lastName[0]}</div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-semibold text-slate-900 truncate">${state.currentUser.firstName} ${state.currentUser.lastName}</p>
+                                <p class="text-[10px] text-slate-400 uppercase tracking-wider">Партнёр</p>
+                            </div>
+                        </div>
+                        <div class="mb-3 flex items-center gap-1">
+                            <span class="w-2 h-2 rounded-full ${state.firebaseConnected ? 'bg-emerald-500' : 'bg-red-500'}"></span>
+                            <span class="text-[10px] text-slate-400">${state.firebaseConnected ? 'Облако подключено' : 'Нет связи'}</span>
+                        </div>
+                        <button onclick="window.logout()" class="w-full text-xs text-slate-500 hover:text-red-500 transition-colors flex items-center justify-center gap-1 py-2 rounded border border-slate-200 hover:bg-red-50">
+                            <i class="fa-solid fa-right-from-bracket"></i> Сменить партнёра
+                        </button>
+                    </div>
+                </aside>
+
+                <main class="flex-1 flex flex-col min-w-0">
+                    <header class="bg-white border-b border-slate-200 px-4 md:px-8 py-4 flex items-center justify-between shadow-sm z-10 gap-4 flex-shrink-0">
+                        <div class="min-w-0 flex items-center gap-3">
+                            <button onclick="window.toggleMobileMenu()" class="md:hidden w-9 h-9 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600">
+                                <i class="fa-solid fa-bars"></i>
+                            </button>
+                            <div class="min-w-0">
+                                <h2 class="text-lg md:text-xl font-bold text-slate-900 truncate">${title[0]}</h2>
+                                <p class="text-xs text-slate-400 mt-0.5 hidden sm:block">${title[1]}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            ${state.view === 'pipeline' ? `<button onclick="window.openNewDealModal()" class="bg-slate-900 hover:bg-slate-800 text-white px-3 md:px-4 py-2 rounded-lg text-xs md:text-sm font-medium transition-all shadow-md hover:shadow-lg flex items-center gap-2">
+                                <i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Новая сделка</span><span class="sm:hidden">Новая</span></button>` : ''}
+                            ${state.view === 'analytics' ? `<div class="flex items-center bg-slate-100 rounded-lg p-0.5 text-xs font-semibold">
+                                <button onclick="window.setAnalyticsScope('all')" class="px-3 py-1.5 rounded-md transition-colors ${state.analyticsScope === 'all' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}">
+                                    <i class="fa-solid fa-users mr-1"></i>Все менеджеры
+                                </button>
+                                <button onclick="window.setAnalyticsScope('mine')" class="px-3 py-1.5 rounded-md transition-colors ${state.analyticsScope === 'mine' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}">
+                                    <i class="fa-solid fa-user mr-1"></i>Только мои
+                                </button>
+                            </div>` : ''}
+                        </div>
+                    </header>
+
+                    <div class="flex-1 relative overflow-auto">
+                        ${state.view === 'pipeline' ? renderPipeline() : (state.view === 'tasks' ? renderTasksView() : renderAnalytics())}
+                    </div>
+                </main>
+            </div>
+
+            <div id="mobile-menu" class="hidden fixed inset-0 z-40 md:hidden">
+                <div class="absolute inset-0 bg-black/50" onclick="window.toggleMobileMenu()"></div>
+                <div class="absolute left-0 top-0 bottom-0 w-72 bg-white shadow-xl flex flex-col">
+                    <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center"><i class="fa-solid fa-gem text-amber-400"></i></div>
+                            <div><h1 class="font-bold text-slate-900">N.E.W. Invest</h1><p class="text-[10px] text-slate-400 uppercase tracking-widest">Premium</p></div>
+                        </div>
+                        <button onclick="window.toggleMobileMenu()" class="text-slate-400"><i class="fa-solid fa-xmark text-xl"></i></button>
+                    </div>
+                    <nav class="flex-1 p-4 space-y-1">
+                        <button onclick="window.setView('pipeline'); window.toggleMobileMenu();" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${state.view === 'pipeline' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}">
+                            <i class="fa-solid fa-chart-column w-5"></i> Воронка сделок</button>
+                        <button onclick="window.setView('tasks'); window.toggleMobileMenu();" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${state.view === 'tasks' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}">
+                            <i class="fa-solid fa-calendar-check w-5"></i> Задачи</button>
+                        <button onclick="window.setView('analytics'); window.toggleMobileMenu();" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${state.view === 'analytics' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}">
+                            <i class="fa-solid fa-chart-pie w-5"></i> Аналитика</button>
+                    </nav>
+                    <div class="p-4 border-t border-slate-100">
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white font-bold text-sm">${state.currentUser.firstName[0]}${state.currentUser.lastName[0]}</div>
+                            <div class="flex-1 min-w-0"><p class="text-sm font-semibold truncate">${state.currentUser.firstName} ${state.currentUser.lastName}</p></div>
+                        </div>
+                        <button onclick="window.logout()" class="w-full text-xs text-slate-500 hover:text-red-500 py-2 rounded border border-slate-200"><i class="fa-solid fa-right-from-bracket mr-1"></i>Сменить партнёра</button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        window.toggleMobileMenu = function () {
+            var menu = document.getElementById('mobile-menu');
+            if (menu) menu.classList.toggle('hidden');
+        };
+
+        window.setView = function (view) {
+            state.view = view; state.modalOpen = false; state.taskPopup = null;
+            var modalRoot = document.getElementById('modal-root'); if (modalRoot) modalRoot.remove();
+            var popupRoot = document.getElementById('task-popup-root'); if (popupRoot) popupRoot.remove();
+            render();
+        };
+
+        window.setAnalyticsScope = function (scope) {
+            state.analyticsScope = scope;
+            render();
+        };
+
+        // ============ DRAG & DROP ============
+        window.dragStart = function (e, id) {
+            var deal = findDeal(id);
+            if (!deal || deal.managerId !== state.currentUser.id) { e.preventDefault(); return; }
+            window.draggingDealId = id;
+            try { e.dataTransfer.setData('text/plain', id); e.dataTransfer.effectAllowed = 'move'; } catch (err) {}
+            setTimeout(function () { var el = document.getElementById('card-' + id); if (el) el.classList.add('dragging'); }, 0);
+        };
+        window.dragEnd = function () {
+            window.draggingDealId = null;
+            document.querySelectorAll('.drag-over').forEach(function (e) { e.classList.remove('drag-over'); });
+            document.querySelectorAll('.dragging').forEach(function (e) { e.classList.remove('dragging'); });
+        };
+        window.dragOver = function (e) {
+            e.preventDefault();
+            try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+            if (!e.currentTarget.classList.contains('drag-over')) e.currentTarget.classList.add('drag-over');
+        };
+        window.dragLeave = function (e) { e.currentTarget.classList.remove('drag-over'); };
+        window.dropDeal = function (e, stageId) {
+            e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+            var id = window.draggingDealId;
+            if (!id) { try { id = e.dataTransfer.getData('text/plain'); } catch (err) {} }
+            if (!id) return;
+            var deal = findDeal(id);
+            if (!deal || deal.managerId !== state.currentUser.id) return;
+            if (deal.stage === stageId) return;
+            deal.stage = stageId;
+            updateDealInDB(id, { stage: stageId });
+            window.draggingDealId = null;
+            render();
+        };
+
+        // ============ ВОРОНКА ============
+        function renderPipeline() {
+            var deals = getMyDeals();
+            return `<div class="h-full overflow-x-auto custom-scroll p-4 md:p-6">
+                <div class="flex gap-4 h-full min-w-max">
+                    ${STAGES.map(function (stage) {
+                        var stageDeals = deals.filter(function (d) { return d.stage === stage.id; });
+                        var totalAmount = stageDeals.reduce(function (sum, d) { return sum + (d.investmentAmount || 0); }, 0);
+                        return `<div class="w-[280px] md:w-72 flex-shrink-0 flex flex-col bg-slate-100/30 rounded-xl border border-slate-200/60 overflow-hidden">
+                            <div class="p-3 md:p-4 border-b border-slate-200/60 ${stage.headerBg}">
+                                <div class="flex items-center justify-between mb-1">
+                                    <h3 class="font-bold text-slate-800 text-xs md:text-sm leading-tight">${stage.name}</h3>
+                                    <span class="text-[10px] font-bold text-slate-500 bg-white/60 px-2 py-0.5 rounded-full">${stageDeals.length}</span>
+                                </div>
+                                <p class="text-[10px] text-slate-600 font-medium">${formatMoney(totalAmount)}</p>
+                            </div>
+                            <div class="flex-1 overflow-y-auto custom-scroll p-3 space-y-3" ondragover="window.dragOver(event)" ondragleave="window.dragLeave(event)" ondrop="window.dropDeal(event, '${stage.id}')">
+                                ${stageDeals.map(function (deal) {
+                                    var manager = findUser(deal.managerId);
+                                    var respManager = findUser(deal.responsibleManagerId);
+                                    var st = dealTaskStatus(deal);
+                                    var owner = isOwner(deal);
+                                    var marker = st === 'overdue' ? '<span class="w-2.5 h-2.5 rounded-full bg-red-500 blink flex-shrink-0"></span>' : (st === 'active' ? '<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0"></span>' : '');
+                                    return `<div id="card-${deal.id}" onclick="window.openDealModal('${deal.id}')" ${owner ? 'draggable="true"' : ''} ondragstart="window.dragStart(event, '${deal.id}')" ondragend="window.dragEnd(event)" class="group relative ${stage.cardBg} border-l-4 ${stage.cardBorder} ${stage.cardText} rounded-r-lg shadow-sm hover:shadow-md transition-all cursor-pointer p-3 md:p-4 fade-in ${owner ? 'cursor-grab active:cursor-grabbing' : ''}">
+                                        ${owner ? `<button onclick="event.stopPropagation(); window.deleteDeal('${deal.id}')" class="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-white shadow-sm hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 z-10 border border-slate-100"><i class="fa-solid fa-trash text-xs"></i></button>` : ''}
+                                        <h4 class="font-bold text-sm mb-2 leading-snug pr-8">${deal.businessName || deal.title}</h4>
+                                        <div class="flex items-center justify-between mb-2 gap-2">
+                                            <span class="text-xs font-bold opacity-80">${formatMoney(deal.investmentAmount)}</span>${marker}
+                                        </div>
+                                        <div class="pt-2 border-t border-black/5 flex flex-col gap-1">
+                                            ${respManager ? `<div class="flex items-center gap-2"><i class="fa-solid fa-user-tie text-[10px] opacity-50 w-4"></i><span class="text-[10px] opacity-70 truncate">${respManager.lastName} ${respManager.firstName}</span></div>` : '<div class="flex items-center gap-2"><i class="fa-solid fa-user-slash text-[10px] opacity-30 w-4"></i><span class="text-[10px] opacity-40 italic">Не назначен</span></div>'}
+                                            ${manager ? `<div class="flex items-center gap-2"><div class="w-5 h-5 rounded-full bg-black/10 flex items-center justify-center text-[9px] font-bold opacity-70 flex-shrink-0">${manager.firstName[0]}${manager.lastName[0]}</div><span class="text-[10px] opacity-50 truncate">Владелец: ${manager.lastName} ${manager.firstName}</span></div>` : ''}
+                                        </div>
+                                    </div>`;
+                                }).join('')}
+                                ${stageDeals.length === 0 ? '<div class="text-center py-8 text-slate-300 text-xs">Нет сделок</div>' : ''}
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>`;
+        }
+
+        // ============ ЗАДАЧИ: КАЛЕНДАРЬ ============
+        window.calPrev = function () { state.calMonth--; if (state.calMonth < 0) { state.calMonth = 11; state.calYear--; } render(); };
+        window.calNext = function () { state.calMonth++; if (state.calMonth > 11) { state.calMonth = 0; state.calYear++; } render(); };
+        window.calToday = function () { var now = new Date(); state.calYear = now.getFullYear(); state.calMonth = now.getMonth(); state.selectedDate = dateKey(now); render(); };
+        window.selectDate = function (key) { state.selectedDate = key; render(); };
+
+        function taskChip(x) {
+            var t = x.task;
+            var bg, icon;
+            if (t.done) { bg = 'bg-slate-400'; icon = 'fa-check'; }
+            else if (isOverdue(t)) { bg = 'bg-red-500'; icon = 'fa-exclamation'; }
+            else { bg = 'bg-emerald-500'; icon = 'fa-clock'; }
+            return `<button onclick="event.stopPropagation(); window.openTaskPopup('${x.deal.id}', ${x.index})" class="w-full text-left px-1.5 py-1 rounded text-[9px] font-semibold text-white flex items-center gap-1 ${bg} hover:opacity-90 shadow-sm">
+                <i class="fa-solid ${icon} text-[7px]"></i><span class="truncate">${timeOf(t.date)}</span>
+            </button>`;
+        }
+
+        function renderTasksView() {
+            var tasksAll = getMyTasks();
+            var year = state.calYear, month = state.calMonth;
+            var first = new Date(year, month, 1);
+            var startOffset = (first.getDay() + 6) % 7;
+            var daysInMonth = new Date(year, month + 1, 0).getDate();
+            var todayKey = dateKey(new Date());
+            var overdueCount = tasksAll.filter(function (x) { return isOverdue(x.task); }).length;
+            var activeCount = tasksAll.filter(function (x) { return !x.task.done && !isOverdue(x.task); }).length;
+            var doneCount = tasksAll.filter(function (x) { return x.task.done; }).length;
+
+            var cells = '';
+            for (var b = 0; b < startOffset; b++) cells += '<div class="min-h-24 md:min-h-32 rounded-lg bg-slate-50 border border-slate-100"></div>';
+            for (var d = 1; d <= daysInMonth; d++) {
+                var key = year + '-' + pad2(month + 1) + '-' + pad2(d);
+                var dayTasks = tasksAll.filter(function (x) { return x.task.date && dateKeyOf(x.task.date) === key; })
+                    .sort(function (a, b2) { return new Date(a.task.date) - new Date(b2.task.date); });
+                var isToday = key === todayKey;
+                var isSel = key === state.selectedDate;
+                cells += `<div onclick="window.selectDate('${key}')" class="min-h-24 md:min-h-32 rounded-lg border p-1.5 cursor-pointer transition-all flex flex-col gap-1 ${isSel ? 'border-amber-400 bg-amber-50/60 ring-2 ring-amber-300' : (isToday ? 'border-amber-300 bg-white' : 'border-slate-200 bg-white hover:bg-slate-50')}">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold ${isToday ? 'text-amber-600' : 'text-slate-600'}">${d}</span>
+                        ${dayTasks.length ? '<span class="text-[9px] font-bold text-white bg-slate-700 rounded-full px-1.5 min-w-[14px] text-center">' + dayTasks.length + '</span>' : ''}
+                    </div>
+                    <div class="flex flex-col gap-0.5 overflow-hidden flex-1">
+                        ${dayTasks.slice(0, 4).map(taskChip).join('')}
+                        ${dayTasks.length > 4 ? '<span class="text-[9px] text-slate-500 font-medium">+' + (dayTasks.length - 4) + '</span>' : ''}
+                    </div>
+                </div>`;
+            }
+            var total = startOffset + daysInMonth;
+            var trail = (7 - (total % 7)) % 7;
+            for (var t2 = 0; t2 < trail; t2++) cells += '<div class="min-h-24 md:min-h-32 rounded-lg bg-slate-50 border border-slate-100"></div>';
+
+            return `<div class="h-full overflow-y-auto custom-scroll p-4 md:p-6 space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-3 sticky top-0 bg-slate-50 z-10 py-2">
+                    <div class="flex items-center gap-2">
+                        <button onclick="window.calPrev()" class="w-9 h-9 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 flex items-center justify-center"><i class="fa-solid fa-chevron-left text-xs"></i></button>
+                        <h3 class="text-base md:text-lg font-bold text-slate-900 min-w-[160px] text-center">${MONTH_NAMES[month]} ${year}</h3>
+                        <button onclick="window.calNext()" class="w-9 h-9 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 flex items-center justify-center"><i class="fa-solid fa-chevron-right text-xs"></i></button>
+                        <button onclick="window.calToday()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-600">Сегодня</button>
+                    </div>
+                    <div class="flex items-center gap-3 text-[10px] font-semibold">
+                        <span class="flex items-center gap-1.5 bg-emerald-50 px-2 py-1 rounded"><span class="w-2 h-2 rounded-full bg-emerald-500"></span><span class="text-emerald-700">Активных: ${activeCount}</span></span>
+                        <span class="flex items-center gap-1.5 bg-red-50 px-2 py-1 rounded"><span class="w-2 h-2 rounded-full bg-red-500 blink"></span><span class="text-red-700">Просрочено: ${overdueCount}</span></span>
+                        <span class="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded"><span class="w-2 h-2 rounded-full bg-slate-400"></span><span class="text-slate-600">Готово: ${doneCount}</span></span>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-2 md:p-4">
+                    <div class="grid grid-cols-7 gap-1 md:gap-2 mb-2">
+                        ${WEEK_DAYS.map(function (w) { return '<div class="text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider py-1">' + w + '</div>'; }).join('')}
+                    </div>
+                    <div class="grid grid-cols-7 gap-1 md:gap-2">${cells}</div>
+                </div>
+                ${renderDayPanel()}
+            </div>`;
+        }
+
+        function renderDayPanel() {
+            if (!state.selectedDate) return '<div class="bg-white rounded-xl border border-slate-100 shadow-sm p-6 text-center text-sm text-slate-400">Выберите день в календаре</div>';
+            var dayTasks = getMyTasks().filter(function (x) { return x.task.date && dateKeyOf(x.task.date) === state.selectedDate; })
+                .sort(function (a, b) { return new Date(a.task.date) - new Date(b.task.date); });
+            var pretty = new Date(state.selectedDate + 'T00:00:00').toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+            return `<div class="bg-white rounded-xl border border-slate-100 shadow-sm p-4 md:p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Задачи на ${pretty}</h3>
+                    <button onclick="window.selectDate(null)" class="text-xs text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark mr-1"></i>Сбросить</button>
+                </div>
+                <div class="space-y-2">
+                    ${dayTasks.map(function (x) {
+                        var t = x.task;
+                        var bg, borderColor, textCls, badge;
+                        if (t.done) { bg = 'bg-slate-50'; borderColor = 'border-slate-200'; textCls = 'text-slate-400 line-through'; badge = '<span class="text-[9px] font-bold text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full uppercase">Выполнена</span>'; }
+                        else if (isOverdue(t)) { bg = 'bg-red-50'; borderColor = 'border-red-200'; textCls = 'text-red-900'; badge = '<span class="text-[9px] font-bold text-red-700 bg-red-200 px-2 py-0.5 rounded-full uppercase blink">Просрочена</span>'; }
+                        else { bg = 'bg-emerald-50'; borderColor = 'border-emerald-200'; textCls = 'text-emerald-900'; badge = '<span class="text-[9px] font-bold text-emerald-700 bg-emerald-200 px-2 py-0.5 rounded-full uppercase">Активна</span>'; }
+                        return `<button onclick="window.openTaskPopup('${x.deal.id}', ${x.index})" class="w-full text-left flex items-start gap-3 ${bg} rounded-lg p-3 border ${borderColor} hover:shadow-md transition-all">
+                            <div class="w-10 h-10 rounded-lg ${t.done ? 'bg-slate-300' : (isOverdue(t) ? 'bg-red-500' : 'bg-emerald-500')} flex items-center justify-center text-white flex-shrink-0">
+                                <i class="fa-solid ${t.done ? 'fa-check' : (isOverdue(t) ? 'fa-exclamation' : 'fa-clock')}"></i>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 mb-1 flex-wrap">${badge}</div>
+                                <p class="text-sm ${textCls} break-words">${t.text}</p>
+                                <div class="flex items-center gap-2 mt-1 flex-wrap">
+                                    <span class="text-[10px] text-slate-500"><i class="fa-regular fa-clock mr-1"></i>${formatDate(t.date)}</span>
+                                    <span class="text-[10px] text-amber-600 font-semibold"><i class="fa-solid fa-building mr-1"></i>${x.deal.businessName || x.deal.title}</span>
+                                </div>
+                            </div>
+                            <i class="fa-solid fa-chevron-right text-slate-300 text-xs flex-shrink-0 mt-2"></i>
+                        </button>`;
+                    }).join('')}
+                    ${dayTasks.length === 0 ? '<p class="text-xs text-slate-400 italic text-center py-4">На этот день задач нет</p>' : ''}
+                </div>
+            </div>`;
+        }
+
+        // ============ ПОПАП ЗАДАЧИ ============
+        window.openTaskPopup = function (dealId, taskIndex) {
+            state.taskPopup = { dealId: dealId, taskIndex: taskIndex, rescheduling: false }; render();
+        };
+        window.closeTaskPopup = function () {
+            state.taskPopup = null;
+            var popupRoot = document.getElementById('task-popup-root'); if (popupRoot) popupRoot.remove();
+        };
+        window.completeTaskFromPopup = function () {
+            if (!state.taskPopup) return;
+            var popup = state.taskPopup;
+            var deal = findDeal(popup.dealId);
+            if (!deal || !deal.tasks[popup.taskIndex]) return;
+            state.taskPopup = null;
+            var popupRoot = document.getElementById('task-popup-root'); if (popupRoot) popupRoot.remove();
+            deal.tasks[popup.taskIndex].done = true;
+            updateDealInDB(deal.id, { tasks: deal.tasks });
+            render();
+        };
+        window.startReschedule = function () {
+            if (!state.taskPopup) return;
+            state.taskPopup.rescheduling = true;
+            var popupRoot = document.getElementById('task-popup-root'); if (popupRoot) popupRoot.remove();
+            renderTaskPopup();
+        };
+        window.cancelReschedule = function () {
+            if (!state.taskPopup) return;
+            state.taskPopup.rescheduling = false;
+            var popupRoot = document.getElementById('task-popup-root'); if (popupRoot) popupRoot.remove();
+            renderTaskPopup();
+        };
+        window.saveReschedule = function () {
+            var input = document.getElementById('task-popup-new-date');
+            if (!input || !input.value) { alert('Укажите новую дату и время'); return; }
+            if (!state.taskPopup) return;
+            var popup = state.taskPopup;
+            var newDate = new Date(input.value).toISOString();
+            state.taskPopup = null;
+            var popupRoot = document.getElementById('task-popup-root'); if (popupRoot) popupRoot.remove();
+            var deal = findDeal(popup.dealId);
+            if (deal && deal.tasks[popup.taskIndex]) {
+                deal.tasks[popup.taskIndex].date = newDate;
+                deal.tasks[popup.taskIndex].done = false;
+                updateDealInDB(deal.id, { tasks: deal.tasks });
+            }
+            render();
+        };
+        window.goToDealFromPopup = function () {
+            if (!state.taskPopup) return;
+            var dealId = state.taskPopup.dealId;
+            state.taskPopup = null;
+            var popupRoot = document.getElementById('task-popup-root'); if (popupRoot) popupRoot.remove();
+            openDealModal(dealId);
+        };
+
+        function renderTaskPopup() {
+            if (!state.taskPopup) return;
+            var deal = findDeal(state.taskPopup.dealId);
+            if (!deal || !deal.tasks[state.taskPopup.taskIndex]) { state.taskPopup = null; return; }
+            var t = deal.tasks[state.taskPopup.taskIndex];
+            var bg = t.done ? 'bg-slate-100' : (isOverdue(t) ? 'bg-red-50' : 'bg-emerald-50');
+            var badgeBg = t.done ? 'bg-slate-200 text-slate-700' : (isOverdue(t) ? 'bg-red-200 text-red-700' : 'bg-emerald-200 text-emerald-700');
+            var badgeText = t.done ? 'Выполнена' : (isOverdue(t) ? 'Просрочена' : 'Активна');
+
+            var body = '';
+            if (state.taskPopup.rescheduling) {
+                body = `<div class="space-y-3">
+                    <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider">Новая дата и время:</label>
+                    <input type="datetime-local" id="task-popup-new-date" value="${toLocalInputValue(t.date)}" class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-900">
+                    <div class="flex gap-2">
+                        <button onclick="window.cancelReschedule()" class="flex-1 px-3 py-2.5 rounded-lg border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Отмена</button>
+                        <button onclick="window.saveReschedule()" class="flex-1 px-3 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold"><i class="fa-solid fa-check mr-1"></i>Сохранить</button>
+                    </div>
+                </div>`;
+            } else {
+                body = `<div class="grid grid-cols-3 gap-2">
+                    <button onclick="window.completeTaskFromPopup()" ${t.done ? 'disabled' : ''} class="px-3 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed flex flex-col items-center gap-1 transition-transform">
+                        <i class="fa-solid fa-check text-base"></i><span>Завершить</span>
+                    </button>
+                    <button onclick="window.startReschedule()" class="px-3 py-3 rounded-lg bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-xs font-semibold flex flex-col items-center gap-1 transition-transform">
+                        <i class="fa-solid fa-calendar-days text-base"></i><span>Перенести</span>
+                    </button>
+                    <button onclick="window.goToDealFromPopup()" class="px-3 py-3 rounded-lg bg-slate-800 hover:bg-slate-900 active:scale-95 text-white text-xs font-semibold flex flex-col items-center gap-1 transition-transform">
+                        <i class="fa-solid fa-building text-base"></i><span>Сделка</span>
+                    </button>
+                </div>`;
+            }
+
+            var popupHTML = `<div id="task-popup-root" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 fade-in" onclick="if(event.target===this) window.closeTaskPopup()">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-white/20">
+                    <div class="px-6 py-4 ${bg} border-b border-slate-100 flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${badgeBg}">${badgeText}</span>
+                                <span class="text-[10px] text-slate-500"><i class="fa-regular fa-clock mr-1"></i>${formatDate(t.date)}</span>
+                            </div>
+                            <h3 class="text-base font-bold text-slate-900 break-words">${t.text}</h3>
+                            <button onclick="window.goToDealFromPopup()" class="mt-1 text-xs text-amber-600 hover:text-amber-700 font-semibold">
+                                <i class="fa-solid fa-building mr-1"></i>${deal.businessName || deal.title}
+                            </button>
+                        </div>
+                        <button onclick="window.closeTaskPopup()" class="w-8 h-8 rounded-lg hover:bg-white/60 flex items-center justify-center text-slate-400 flex-shrink-0">
+                            <i class="fa-solid fa-xmark text-lg"></i>
+                        </button>
+                    </div>
+                    <div class="px-6 py-4">${body}</div>
+                </div>
+            </div>`;
+
+            var existing = document.getElementById('task-popup-root'); if (existing) existing.remove();
+            var div = document.createElement('div');
+            div.innerHTML = popupHTML;
+            document.body.appendChild(div.firstElementChild);
+        }
+
+        // ============ АНАЛИТИКА ============
+        function renderAnalytics() {
+            var deals = getAnalyticsDeals();
+            var totalDeals = deals.length;
+            var totalInvestment = deals.reduce(function (sum, d) { return sum + (d.investmentAmount || 0); }, 0);
+            var fundedDeals = deals.filter(function (d) { return d.stage === 'funded'; });
+            var fundedAmount = fundedDeals.reduce(function (sum, d) { return sum + (d.investmentAmount || 0); }, 0);
+            var failedDeals = deals.filter(function (d) { return d.stage === 'failed'; }).length;
+            var conversionRate = totalDeals > 0 ? ((fundedDeals.length / totalDeals) * 100).toFixed(1) : 0;
+
+            var scopeLabel = state.analyticsScope === 'mine' ? 'Моя статистика' : 'Общая статистика команды';
+
+            return `<div class="h-full overflow-y-auto custom-scroll p-4 md:p-8 space-y-4 md:space-y-6">
+                <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-lg ${state.analyticsScope === 'mine' ? 'bg-amber-50' : 'bg-slate-900'} flex items-center justify-center">
+                            <i class="fa-solid ${state.analyticsScope === 'mine' ? 'fa-user' : 'fa-users'} ${state.analyticsScope === 'mine' ? 'text-amber-500' : 'text-white'}"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-slate-900">${scopeLabel}</h3>
+                            <p class="text-xs text-slate-400">Показано сделок: <span class="font-semibold text-slate-700">${totalDeals}</span> из <span class="font-semibold text-slate-700">${state.deals.length}</span></p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
+                    <div class="bg-white rounded-xl p-4 md:p-6 border border-slate-100 shadow-sm">
+                        <div class="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-blue-50 flex items-center justify-center mb-2 md:mb-4"><i class="fa-solid fa-briefcase text-blue-500 text-sm md:text-base"></i></div>
+                        <p class="text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Всего сделок</p>
+                        <p class="text-xl md:text-3xl font-bold text-slate-900 mt-1">${totalDeals}</p>
+                    </div>
+                    <div class="bg-white rounded-xl p-4 md:p-6 border border-slate-100 shadow-sm">
+                        <div class="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-amber-50 flex items-center justify-center mb-2 md:mb-4"><i class="fa-solid fa-coins text-amber-500 text-sm md:text-base"></i></div>
+                        <p class="text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Общий объём</p>
+                        <p class="text-sm md:text-2xl font-bold text-slate-900 mt-1 truncate" title="${formatMoney(totalInvestment)}">${formatMoney(totalInvestment)}</p>
+                    </div>
+                    <div class="bg-white rounded-xl p-4 md:p-6 border border-slate-100 shadow-sm">
+                        <div class="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-emerald-50 flex items-center justify-center mb-2 md:mb-4"><i class="fa-solid fa-check-circle text-emerald-500 text-sm md:text-base"></i></div>
+                        <p class="text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Получено</p>
+                        <p class="text-sm md:text-2xl font-bold text-emerald-600 mt-1 truncate" title="${formatMoney(fundedAmount)}">${formatMoney(fundedAmount)}</p>
+                        <p class="text-[10px] text-slate-400 mt-1">Конверсия: <span class="font-bold text-slate-700">${conversionRate}%</span></p>
+                    </div>
+                    <div class="bg-white rounded-xl p-4 md:p-6 border border-slate-100 shadow-sm">
+                        <div class="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-red-50 flex items-center justify-center mb-2 md:mb-4"><i class="fa-solid fa-circle-xmark text-red-500 text-sm md:text-base"></i></div>
+                        <p class="text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Провалено</p>
+                        <p class="text-xl md:text-3xl font-bold text-slate-900 mt-1">${failedDeals}</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                    <div class="bg-white rounded-xl p-4 md:p-6 border border-slate-100 shadow-sm"><h3 class="font-bold text-slate-900 mb-4 text-sm md:text-base">Распределение по этапам</h3><div class="h-64 md:h-72"><canvas id="chartStages"></canvas></div></div>
+                    <div class="bg-white rounded-xl p-4 md:p-6 border border-slate-100 shadow-sm"><h3 class="font-bold text-slate-900 mb-4 text-sm md:text-base">Объём инвестиций (млн ₽)</h3><div class="h-64 md:h-72"><canvas id="chartAmounts"></canvas></div></div>
+                    <div class="bg-white rounded-xl p-4 md:p-6 border border-slate-100 shadow-sm lg:col-span-2"><h3 class="font-bold text-slate-900 mb-4 text-sm md:text-base">Эффективность менеджеров</h3><div class="h-64 md:h-72"><canvas id="chartManagers"></canvas></div></div>
+                </div>
+            </div>`;
+        }
+
+        function initCharts() {
+            var deals = getAnalyticsDeals();
+            if (!window.Chart) return;
+            Chart.defaults.font.family = "'Inter', sans-serif";
+            Chart.defaults.color = '#94a3b8';
+            var stageLabels = STAGES.map(function (s) { return s.name.length > 15 ? s.name.substring(0, 15) + '...' : s.name; });
+            var stageCounts = STAGES.map(function (s) { return deals.filter(function (d) { return d.stage === s.id; }).length; });
+            var stageAmounts = STAGES.map(function (s) { return deals.filter(function (d) { return d.stage === s.id; }).reduce(function (sum, d) { return sum + (d.investmentAmount || 0); }, 0) / 1000000; });
+            var headerBgColors = { 'bg-slate-100': '#cbd5e1', 'bg-blue-100': '#bfdbfe', 'bg-indigo-100': '#c7d2fe', 'bg-purple-100': '#e9d5ff', 'bg-violet-100': '#ddd6fe', 'bg-fuchsia-100': '#f5d0fe', 'bg-pink-100': '#fbcfe8', 'bg-rose-100': '#fecdd3', 'bg-orange-100': '#fed7aa', 'bg-amber-100': '#fde68a', 'bg-emerald-100': '#bbf7d0', 'bg-red-100': '#fecaca' };
+            var stageColors = STAGES.map(function (s) { return headerBgColors[s.headerBg] || '#94a3b8'; });
+            if (document.getElementById('chartStages')) new Chart(document.getElementById('chartStages'), { type: 'bar', data: { labels: stageLabels, datasets: [{ label: 'Кол-во', data: stageCounts, backgroundColor: stageColors, borderRadius: 6, borderSkipped: false }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false }, ticks: { font: { size: 10 } } } } } });
+            if (document.getElementById('chartAmounts')) new Chart(document.getElementById('chartAmounts'), { type: 'line', data: { labels: stageLabels, datasets: [{ label: 'Млн ₽', data: stageAmounts, borderColor: '#d4af37', backgroundColor: 'rgba(212, 175, 55, 0.1)', fill: true, tension: 0.4, pointBackgroundColor: '#d4af37', pointRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } } } } });
+            if (document.getElementById('chartManagers')) {
+                var managerLabels = state.users.map(function (m) { return m.lastName + ' ' + m.firstName; });
+                var managerFunded = state.users.map(function (m) { return deals.filter(function (d) { return d.managerId === m.id && d.stage === 'funded'; }).reduce(function (s, d) { return s + (d.investmentAmount || 0); }, 0) / 1000000; });
+                var managerFailed = state.users.map(function (m) { return deals.filter(function (d) { return d.managerId === m.id && d.stage === 'failed'; }).length; });
+                new Chart(document.getElementById('chartManagers'), { type: 'bar', data: { labels: managerLabels, datasets: [{ label: 'Получено (млн ₽)', data: managerFunded, backgroundColor: '#10b981', borderRadius: 6, yAxisID: 'y' }, { label: 'Провалено', data: managerFailed, backgroundColor: '#ef4444', borderRadius: 6, yAxisID: 'y1' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { type: 'linear', display: true, position: 'left', grid: { color: '#f1f5f9' }, title: { display: true, text: 'Млн ₽' } }, y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Кол-во' } }, x: { grid: { display: false } } } } });
+            }
+        }
+
+        // ============ МОДАЛКА СДЕЛКИ ============
+        window.toggleDropdown = function () {
+            var dd = document.getElementById('resp-dropdown-menu'); if (dd) dd.classList.toggle('hidden');
+        };
+        window.selectManager = function (userId) {
+            window.selectedRespManagerId = userId;
+            var label = document.getElementById('resp-dropdown-label');
+            if (userId === '') { if (label) label.innerHTML = '<span class="text-slate-400">Не назначен</span>'; }
+            else { var u = findUser(userId); if (label && u) label.innerHTML = '<span class="text-slate-900">' + u.lastName + ' ' + u.firstName + '</span>'; }
+            var dd = document.getElementById('resp-dropdown-menu'); if (dd) dd.classList.add('hidden');
+        };
+        window.closeDropdownOnOutside = function (e) {
+            var dd = document.getElementById('resp-dropdown-menu');
+            var btn = document.getElementById('resp-dropdown-btn');
+            if (dd && btn && !dd.contains(e.target) && !btn.contains(e.target)) dd.classList.add('hidden');
+        };
+        window.openNewDealModal = function () { state.selectedDealId = null; state.modalOpen = true; state.dealFiles = []; state.uploadingName = null; state.taskPopup = null; render(); };
+        window.openDealModal = function (id) {
+            state.selectedDealId = id; state.modalOpen = true;
+            state.dealFiles = []; state.uploadingName = null; state.taskPopup = null;
+            loadFiles(id); render();
+        };
+        window.closeDealModal = function () { state.modalOpen = false; state.selectedDealId = null; var modalRoot = document.getElementById('modal-root'); if (modalRoot) modalRoot.remove(); render(); };
+
+        function renderModal() {
+            var deal = state.selectedDealId ? findDeal(state.selectedDealId) : null;
+            var isNew = !deal; var owner = isOwner(deal);
+            var businessName = isNew ? '' : (deal.businessName || '');
+            var businessDescription = isNew ? '' : (deal.businessDescription || '');
+            var investmentAmount = isNew ? '' : (deal.investmentAmount || '');
+            var responsibleManagerId = isNew ? state.currentUser.id : (deal.responsibleManagerId || '');
+            var stage = isNew ? 'new' : deal.stage;
+            var contacts = isNew ? [] : (deal.contacts || []);
+            var comments = isNew ? [] : (deal.comments || []);
+            var tasks = isNew ? [] : (deal.tasks || []);
+            var files = state.dealFiles || [];
+            var ownerUser = findUser(isNew ? state.currentUser.id : deal.managerId);
+            window.tempContacts = isNew ? [{ name: '', phone: '', email: '', telegram: '', max: '' }] : JSON.parse(JSON.stringify(contacts));
+            window.selectedRespManagerId = responsibleManagerId;
+            var respUser = findUser(responsibleManagerId);
+            var respLabel = respUser ? respUser.lastName + ' ' + respUser.firstName : 'Не назначен';
+            var stageObj = STAGES.find(function (s) { return s.id === stage; }) || STAGES[0];
+
+            var filesListHtml = files.map(function (f) {
+                return `<div class="flex items-center gap-1 bg-slate-50 p-2 rounded-lg border border-slate-100 hover:border-amber-300 transition-colors">
+                    <button onclick="window.openFile('${f.id}')" class="flex items-center gap-2 flex-1 min-w-0 text-left" title="Скачать файл">
+                        <i class="fa-solid ${f.external ? 'fa-link' : 'fa-file-lines'} text-slate-400 flex-shrink-0"></i>
+                        <span class="text-xs text-slate-700 truncate hover:text-amber-700">${f.name}</span>
+                        <span class="text-[9px] text-slate-400 flex-shrink-0">${formatSize(f.size)}</span>
+                        <i class="fa-solid fa-download text-[10px] text-slate-300 flex-shrink-0"></i>
+                    </button>
+                    ${owner ? `<button onclick="event.stopPropagation(); window.deleteFileDoc('${f.id}')" class="text-slate-300 hover:text-red-500 flex-shrink-0"><i class="fa-solid fa-trash text-xs"></i></button>` : ''}
+                </div>`;
+            }).join('');
+
+            var modalHTML = `<div class="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 md:p-4 fade-in" onclick="if(event.target===this) window.closeDealModal()">
+                <div class="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] md:h-auto md:max-h-[90vh] flex flex-col overflow-hidden border border-white/20">
+                    <div class="px-4 md:px-8 py-4 md:py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 flex-shrink-0">
+                        <div class="flex items-center gap-3 md:gap-4 min-w-0">
+                            <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl ${isNew ? 'bg-slate-200' : stageObj.cardBg} flex items-center justify-center flex-shrink-0 border-l-4 ${isNew ? 'border-slate-400' : stageObj.cardBorder}">
+                                <i class="fa-solid ${isNew ? 'fa-plus' : 'fa-building'} text-slate-600 text-lg md:text-xl"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <h2 class="text-lg md:text-xl font-bold text-slate-900 truncate">${isNew ? 'Новая сделка' : (deal.businessName || deal.title)}</h2>
+                                <div class="flex items-center gap-2 mt-1 flex-wrap">
+                                    ${!owner ? '<span class="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded font-bold uppercase tracking-wider"><i class="fa-solid fa-lock mr-1"></i>Только просмотр</span>' : ''}
+                                    <span class="text-xs text-slate-400">Владелец: ${ownerUser ? getUserLabel(ownerUser) : 'Неизвестно'}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="window.closeDealModal()" class="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center text-slate-400 transition-colors flex-shrink-0 ml-2"><i class="fa-solid fa-xmark text-lg"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto custom-scroll p-4 md:p-8">
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+                            <div class="lg:col-span-2 space-y-6">
+                                <div class="space-y-4">
+                                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">Основная информация</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div class="md:col-span-2"><label class="block text-xs font-semibold text-slate-500 mb-1">Название компании *</label><input type="text" id="m_businessName" value="${businessName}" ${!owner ? 'disabled' : ''} class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 disabled:opacity-50 disabled:bg-slate-100" placeholder="ООО Ромашка"></div>
+                                        <div class="md:col-span-2 relative"><label class="block text-xs font-semibold text-slate-500 mb-1">Ответственный менеджер *</label>
+                                            <button type="button" id="resp-dropdown-btn" onclick="window.toggleDropdown()" ${!owner ? 'disabled' : ''} class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-left flex items-center justify-between disabled:opacity-50 disabled:bg-slate-100 cursor-pointer hover:bg-slate-100 transition-colors">
+                                                <span id="resp-dropdown-label"><span class="${responsibleManagerId === '' ? 'text-slate-400' : 'text-slate-900'}">${respLabel}</span></span>
+                                                <i class="fa-solid fa-chevron-down text-slate-400 text-xs"></i>
+                                            </button>
+                                            <div id="resp-dropdown-menu" class="hidden absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 dropdown-menu max-h-60 overflow-y-auto custom-scroll">
+                                                <button type="button" onclick="window.selectManager('')" class="w-full text-left px-3 py-2.5 text-sm hover:bg-slate-50 transition-colors flex items-center justify-between border-b border-slate-50"><span class="text-slate-600">Не назначен</span>${responsibleManagerId === '' ? '<i class="fa-solid fa-check text-amber-500"></i>' : ''}</button>
+                                                ${state.users.map(function (m) {
+                                                    return `<button type="button" onclick="window.selectManager('${m.id}')" class="w-full text-left px-3 py-2.5 text-sm hover:bg-slate-50 transition-colors flex items-center justify-between border-b border-slate-50 last:border-b-0 ${responsibleManagerId === m.id ? 'bg-amber-50' : ''}">
+                                                        <div class="flex items-center gap-2">
+                                                            <div class="w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">${m.firstName[0]}${m.lastName[0]}</div>
+                                                            <span class="text-slate-900 font-medium">${m.lastName} ${m.firstName}</span>
+                                                        </div>
+                                                        ${responsibleManagerId === m.id ? '<i class="fa-solid fa-check text-amber-500"></i>' : ''}
+                                                    </button>`;
+                                                }).join('')}
+                                            </div>
+                                        </div>
+                                        <div class="md:col-span-2"><label class="block text-xs font-semibold text-slate-500 mb-1">Описание бизнеса</label><textarea id="m_businessDescription" rows="3" ${!owner ? 'disabled' : ''} class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 disabled:opacity-50 disabled:bg-slate-100" placeholder="Сфера деятельности...">${businessDescription}</textarea></div>
+                                        <div><label class="block text-xs font-semibold text-slate-500 mb-1">Сумма инвестиций (₽) *</label><input type="number" id="m_investmentAmount" value="${investmentAmount}" ${!owner ? 'disabled' : ''} class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 disabled:opacity-50 disabled:bg-slate-100" placeholder="100000000"></div>
+                                        <div><label class="block text-xs font-semibold text-slate-500 mb-1">Этап воронки</label><select id="m_stage" ${!owner ? 'disabled' : ''} class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 disabled:opacity-50 disabled:bg-slate-100">${STAGES.map(function (s) { return `<option value="${s.id}" ${s.id === stage ? 'selected' : ''}>${s.name}</option>`; }).join('')}</select></div>
+                                    </div>
+                                </div>
+                                <div class="space-y-4">
+                                    <div class="flex items-center justify-between border-b border-slate-100 pb-2"><h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Контакты</h3>${owner ? `<button onclick="window.addContactRow()" class="text-xs font-semibold text-amber-600 hover:text-amber-700"><i class="fa-solid fa-plus mr-1"></i>Добавить</button>` : ''}</div>
+                                    <div id="contactsContainer" class="space-y-3"></div>
+                                </div>
+                                <div class="space-y-4">
+                                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">Комментарии</h3>
+                                    <div class="space-y-3 max-h-48 overflow-y-auto custom-scroll pr-2">
+                                        ${comments.map(function (c) { return `<div class="bg-slate-50 rounded-lg p-3 border border-slate-100"><div class="flex items-center justify-between mb-1"><span class="text-xs font-bold text-slate-700">${c.author || 'Неизвестно'}</span><span class="text-[10px] text-slate-400">${formatDate(c.date)}</span></div><p class="text-sm text-slate-600 break-words">${c.text}</p></div>`; }).join('')}
+                                        ${comments.length === 0 ? '<p class="text-xs text-slate-400 italic">Нет комментариев</p>' : ''}
+                                    </div>
+                                    ${owner ? `<div class="flex gap-2"><input type="text" id="m_comment" class="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm" placeholder="Добавить комментарий..."><button onclick="window.addComment()" class="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 flex-shrink-0"><i class="fa-solid fa-paper-plane"></i></button></div>` : ''}
+                                </div>
+                            </div>
+                            <div class="space-y-6">
+                                <div class="space-y-4">
+                                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">Задачи</h3>
+                                    <div class="space-y-2 max-h-64 overflow-y-auto custom-scroll">
+                                        ${tasks.map(function (t, i) {
+                                            var bg = t.done ? 'bg-slate-100 border-slate-200' : (isOverdue(t) ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200');
+                                            var btnBg = t.done ? 'bg-slate-300 cursor-not-allowed' : (isOverdue(t) ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-500 hover:bg-emerald-600');
+                                            var icon = t.done ? 'fa-check' : (isOverdue(t) ? 'fa-exclamation' : 'fa-clock');
+                                            return `<div class="flex items-start gap-2 ${bg} p-3 rounded-lg border">
+                                                <button onclick="window.toggleTask(${i})" ${!owner || t.done ? 'disabled' : ''} class="mt-0.5 w-6 h-6 rounded-lg ${btnBg} text-white flex items-center justify-center flex-shrink-0 disabled:opacity-50">
+                                                    <i class="fa-solid ${icon} text-xs"></i>
+                                                </button>
+                                                <div class="flex-1 min-w-0">
+                                                    <p class="text-sm ${t.done ? 'line-through text-slate-400' : 'text-slate-800'} break-words">${t.text}</p>
+                                                    <p class="text-[10px] text-slate-500 mt-1"><i class="fa-regular fa-clock mr-1"></i>${formatDate(t.date)} ${isOverdue(t) ? '<span class="text-red-600 font-bold ml-1 uppercase blink">Просрочена</span>' : ''}</p>
+                                                </div>
+                                                ${owner ? `<button onclick="event.stopPropagation(); window.deleteTask(${i})" class="text-slate-300 hover:text-red-500 p-1 flex-shrink-0"><i class="fa-solid fa-trash text-xs"></i></button>` : ''}
+                                            </div>`;
+                                        }).join('')}
+                                        ${tasks.length === 0 ? '<p class="text-xs text-slate-400 italic">Нет задач</p>' : ''}
+                                    </div>
+                                    ${owner ? `<div class="flex flex-col gap-2"><input type="text" id="m_task_text" class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm" placeholder="Описание задачи..."><input type="datetime-local" id="m_task_date" class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-600"><button onclick="window.addTask()" class="bg-slate-900 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 w-full flex items-center justify-center gap-2"><i class="fa-solid fa-plus"></i> Добавить задачу</button></div>` : ''}
+                                </div>
+                                <div class="space-y-4">
+                                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">Файлы</h3>
+                                    <div class="space-y-2 max-h-48 overflow-y-auto custom-scroll">
+                                        ${state.uploadingName ? `<div class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100"><i class="fa-solid fa-spinner fa-spin text-amber-500 flex-shrink-0"></i><span class="text-xs text-slate-500 truncate flex-1">${state.uploadingName} — загрузка…</span></div>` : ''}
+                                        ${filesListHtml}
+                                        ${files.length === 0 && !state.uploadingName ? '<p class="text-xs text-slate-400 italic">Нет файлов</p>' : ''}
+                                    </div>
+                                    ${owner ? `<div class="space-y-2">
+                                        <div class="border-2 border-dashed border-slate-200 rounded-lg p-4 text-center hover:border-amber-400 transition-colors cursor-pointer" onclick="document.getElementById('m_file').click()">
+                                            <i class="fa-solid fa-cloud-arrow-up text-slate-300 text-xl mb-1"></i>
+                                            <p class="text-[10px] text-slate-400">Загрузить файл (до 20 МБ)</p>
+                                            <input type="file" id="m_file" class="hidden" onchange="window.handleFileUpload(this)">
+                                        </div>
+                                        <button onclick="window.attachLink()" class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 flex items-center justify-center gap-2"><i class="fa-solid fa-link"></i> Прикрепить ссылку (Яндекс.Диск и др.)</button>
+                                    </div>` : ''}
+                                    ${isNew ? '<p class="text-[10px] text-slate-400 italic">Файлы можно прикрепить после создания сделки</p>' : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="px-4 md:px-8 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between flex-shrink-0 gap-4">
+                        ${!isNew && owner ? `<button onclick="event.stopPropagation(); window.deleteDeal('${deal.id}')" class="text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-medium flex-shrink-0 transition-colors border border-transparent hover:border-red-100"><i class="fa-solid fa-trash mr-1"></i><span class="hidden sm:inline">Удалить сделку</span></button>` : '<div></div>'}
+                        <div class="flex gap-3 ml-auto">
+                            <button onclick="window.closeDealModal()" class="px-4 md:px-5 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100 transition-colors">Отмена</button>
+                            ${owner ? `<button onclick="window.saveDeal()" class="px-4 md:px-5 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition-colors shadow-md flex items-center gap-2"><i class="fa-solid fa-check"></i> ${isNew ? 'Создать' : 'Сохранить'}</button>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+
+            var existing = document.getElementById('modal-root'); if (existing) existing.remove();
+            var div = document.createElement('div');
+            div.id = 'modal-root';
+            div.innerHTML = modalHTML;
+            document.body.appendChild(div);
+            document.addEventListener('click', window.closeDropdownOnOutside);
+            refreshContactsInModal();
+        }
+
+        function renderContactRow(c, i, owner) {
+            return `<div class="bg-slate-50 rounded-lg p-3 border border-slate-100 space-y-2 fade-in">
+                <div class="flex items-center justify-between"><span class="text-[10px] font-bold text-slate-400 uppercase">Контакт #${i + 1}</span>${owner ? `<button onclick="event.stopPropagation(); window.removeContact(${i})" class="text-slate-300 hover:text-red-500"><i class="fa-solid fa-trash text-xs"></i></button>` : ''}</div>
+                <input type="text" id="c_name_${i}" value="${c.name || ''}" ${!owner ? 'disabled' : ''} placeholder="ФИО" class="w-full px-2 py-1.5 rounded border border-slate-200 bg-white text-xs disabled:bg-slate-100 disabled:opacity-50">
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="text" id="c_phone_${i}" value="${c.phone || ''}" ${!owner ? 'disabled' : ''} placeholder="Телефон" class="w-full px-2 py-1.5 rounded border border-slate-200 bg-white text-xs disabled:bg-slate-100 disabled:opacity-50">
+                    <input type="email" id="c_email_${i}" value="${c.email || ''}" ${!owner ? 'disabled' : ''} placeholder="Email" class="w-full px-2 py-1.5 rounded border border-slate-200 bg-white text-xs disabled:bg-slate-100 disabled:opacity-50">
+                    <input type="text" id="c_telegram_${i}" value="${c.telegram || ''}" ${!owner ? 'disabled' : ''} placeholder="Telegram" class="w-full px-2 py-1.5 rounded border border-slate-200 bg-white text-xs disabled:bg-slate-100 disabled:opacity-50">
+                    <input type="text" id="c_max_${i}" value="${c.max || ''}" ${!owner ? 'disabled' : ''} placeholder="MAX" class="w-full px-2 py-1.5 rounded border border-slate-200 bg-white text-xs disabled:bg-slate-100 disabled:opacity-50">
+                </div>
+            </div>`;
+        }
+        function refreshContactsInModal() {
+            var container = document.getElementById('contactsContainer'); if (!container) return;
+            var deal = state.selectedDealId ? findDeal(state.selectedDealId) : null;
+            container.innerHTML = window.tempContacts.map(function (c, i) { return renderContactRow(c, i, isOwner(deal)); }).join('');
+        }
+        window.addContactRow = function () { window.tempContacts.push({ name: '', phone: '', email: '', telegram: '', max: '' }); refreshContactsInModal(); };
+        window.removeContact = function (i) { window.tempContacts.splice(i, 1); refreshContactsInModal(); };
+        window.addComment = function () {
+            var input = document.getElementById('m_comment');
+            if (!input || !input.value.trim()) return;
+            if (state.selectedDealId) {
+                var deal = findDeal(state.selectedDealId);
+                deal.comments.push({ text: input.value.trim(), date: new Date().toISOString(), author: state.currentUser.lastName + ' ' + state.currentUser.firstName });
+                updateDealInDB(deal.id, { comments: deal.comments });
+            }
+        };
+        window.addTask = function () {
+            var textInput = document.getElementById('m_task_text');
+            var dateInput = document.getElementById('m_task_date');
+            if (!textInput || !textInput.value.trim()) return;
+            if (state.selectedDealId) {
+                var deal = findDeal(state.selectedDealId);
+                deal.tasks.push({ text: textInput.value.trim(), done: false, date: dateInput && dateInput.value ? new Date(dateInput.value).toISOString() : new Date().toISOString() });
+                updateDealInDB(deal.id, { tasks: deal.tasks });
+            }
+        };
+        window.toggleTask = function (i) {
+            if (state.selectedDealId) {
+                var deal = findDeal(state.selectedDealId);
+                deal.tasks[i].done = !deal.tasks[i].done;
+                updateDealInDB(deal.id, { tasks: deal.tasks });
+            }
+        };
+        window.deleteTask = function (i) {
+            if (state.selectedDealId) {
+                var deal = findDeal(state.selectedDealId);
+                deal.tasks.splice(i, 1);
+                updateDealInDB(deal.id, { tasks: deal.tasks });
+            }
+        };
+        window.saveDeal = function () {
+            var businessNameEl = document.getElementById('m_businessName');
+            var investmentAmountEl = document.getElementById('m_investmentAmount');
+            var stageEl = document.getElementById('m_stage');
+            var businessDescriptionEl = document.getElementById('m_businessDescription');
+            if (!businessNameEl || !investmentAmountEl) return;
+            var businessName = businessNameEl.value.trim();
+            var investmentAmount = parseFloat(investmentAmountEl.value);
+            var stage = stageEl.value;
+            var businessDescription = businessDescriptionEl ? businessDescriptionEl.value.trim() : '';
+            var responsibleManagerId = window.selectedRespManagerId || '';
+            if (!businessName || !investmentAmount) { alert('Заполните название компании и сумму инвестиций'); return; }
+            var contacts = window.tempContacts.map(function (_, i) {
+                var nameEl = document.getElementById('c_name_' + i);
+                var phoneEl = document.getElementById('c_phone_' + i);
+                var emailEl = document.getElementById('c_email_' + i);
+                var tgEl = document.getElementById('c_telegram_' + i);
+                var maxEl = document.getElementById('c_max_' + i);
+                return { name: nameEl ? nameEl.value : '', phone: phoneEl ? phoneEl.value : '', email: emailEl ? emailEl.value : '', telegram: tgEl ? tgEl.value : '', max: maxEl ? maxEl.value : '' };
+            }).filter(function (c) { return c.name || c.phone || c.email; });
+            if (state.selectedDealId) {
+                updateDealInDB(state.selectedDealId, { businessName: businessName, title: businessName, businessDescription: businessDescription, investmentAmount: investmentAmount, responsibleManagerId: responsibleManagerId, stage: stage, contacts: contacts });
+            } else {
+                saveDealToDB({ title: businessName, managerId: state.currentUser.id, responsibleManagerId: responsibleManagerId, stage: stage, businessName: businessName, businessDescription: businessDescription, investmentAmount: investmentAmount, contacts: contacts, comments: [], tasks: [] });
+            }
+            window.closeDealModal();
+        };
+        window.deleteDeal = function (id) {
+            if (confirm('Вы уверены, что хотите удалить эту сделку?')) {
+                deleteDealFromDB(id);
+                var modalRoot = document.getElementById('modal-root'); if (modalRoot) modalRoot.remove();
+                state.modalOpen = false; state.selectedDealId = null; render();
+            }
+        };
+
+        // ============ ЗАПУСК ============
+        function initApp() {
+            var currentUserId = localStorage.getItem(KEY_CURRENT_USER_ID);
+            if (currentUserId && ALL_MANAGERS.find(function (u) { return u.id === currentUserId; })) {
+                state.currentUser = ALL_MANAGERS.find(function (u) { return u.id === currentUserId; });
+            } else { state.currentUser = null; }
+            render();
+            if (state.currentUser && firebaseReady && db) subscribeToDeals();
+        }
+
+        window.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html>
